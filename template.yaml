@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion : '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Lambda Kakao AI Chatbot
+
+Mappings:
+  ResourceMap:
+    CentralFunction:
+      Name: central-function
+    ImageProcessFunction: 
+      Name: image-process-function
+    TextProcessFunction: 
+      Name: text-process-function
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 1024
+    Environment:
+      Variables:
+        IMAGE_PROCESS_FUNCTION_NAME: !FindInMap [ResourceMap, ImageProcessFunction, Name]
+        TEXT_PROCESS_FUNCTION_NAME: !FindInMap [ResourceMap, TextProcessFunction, Name]
+        IMAGE_S3_BUCKET_NAME : !Ref ImageS3Bucket
+        AWS_REGION_NAME : !Ref AWS::Region
+
+Resources:
+  CentralFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !FindInMap [ResourceMap, CentralFunction, Name]
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      CodeUri: ./src/central
+      Description: Kakao Chatbot Central Function
+      Role: !GetAtt CentralFunctionRole.Arn
+      Events:
+        Skill:
+          Type: Api
+          Properties:
+            Path: /kakao
+            Method: ANY
+
+  CentralFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: KakaoChatbotIamPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - lambda:InvokeFunction
+                    - lambda:InvokeAsync
+                  Resource: "*"
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource: "*"
+
+  ImageProcessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !FindInMap [ResourceMap, ImageProcessFunction, Name]
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      CodeUri: ./src/image_process
+      Description: Kakao Chatbot Image Process Function
+      Role: !GetAtt ImageProcessFunctionRole.Arn
+  
+  ImageProcessFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ImageProcessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - rekognition:DetectLabels
+                  - bedrock:InvokeModel
+                Resource: "*"
+
+  TextProcessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !FindInMap [ResourceMap, TextProcessFunction, Name]
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      CodeUri: ./src/text_process
+      Description: Kakao Chatbot Text Process Function
+      Role: !GetAtt TextProcessFunctionRole.Arn
+  
+  TextProcessFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TextProcessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - translate:TranslateText
+                  - s3:PutObject
+                Resource: "*"
+  
+  ImageS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+  
+  ImageS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImageS3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub "${ImageS3Bucket.Arn}/*"
+
+Outputs:
+  KakaoChatbotApi:
+    Description: "API Gateway endpoint URL for Kakao Chatbot"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/kakao"
